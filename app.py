@@ -23,25 +23,28 @@ df_cur  = pd.read_excel(uploaded, sheet_name=cur_sheet)
 df_prev = df_prev.loc[:, [not str(c).startswith("Unnamed") for c in df_prev.columns]]
 df_cur  = df_cur.loc[:,  [not str(c).startswith("Unnamed") for c in df_cur.columns]]
 
-# 4) カラムを絞って選択
-# ― カテゴリ列：object 型のみ
-cat_cols = [c for c in df_cur.columns if df_cur[c].dtype == "object"]
-# ― 数値列：数値型のみ
-num_cols = [c for c in df_cur.columns if pd.api.types.is_numeric_dtype(df_cur[c])]
+# 4) カラムを絞って選択（可変型の検出を強化）
+# 数値列: 数値変換後に１つでも非欠損値があれば対象
+num_cols = [
+    c for c in df_cur.columns
+    if pd.to_numeric(df_cur[c], errors="coerce").notna().any()
+]
+# 文字列列: 数値列以外
+cat_cols = [c for c in df_cur.columns if c not in num_cols]
 
 if not cat_cols or not num_cols:
     st.error("カテゴリ列（文字列型）または数値列（数値型）が検出できません。")
     st.stop()
 
-sel_cat   = st.sidebar.selectbox("カテゴリ列を選択",   cat_cols)
-sel_sales = st.sidebar.selectbox("売上列を選択",       num_cols)
+sel_cat   = st.sidebar.selectbox("カテゴリ列を選択", cat_cols)
+sel_sales = st.sidebar.selectbox("売上列を選択", num_cols)
 
 cat_col   = sel_cat
 sales_col = sel_sales
 
 # 5) 数値変換＆チェック
 df_prev[sales_col] = pd.to_numeric(df_prev[sales_col], errors="coerce")
-df_cur [sales_col] = pd.to_numeric(df_cur [sales_col], errors="coerce")
+df_cur[sales_col]  = pd.to_numeric(df_cur[sales_col], errors="coerce")
 
 if df_cur[sales_col].dropna().empty:
     st.error(f"列「{sales_col}」に数値データがありません。別の列を選択してください。")
@@ -49,19 +52,19 @@ if df_cur[sales_col].dropna().empty:
 
 # 6) 集計＆比較
 agg_prev   = df_prev.groupby(cat_col)[sales_col].sum().rename("前月売上")
-agg_cur    = df_cur .groupby(cat_col)[sales_col].sum().rename("当月売上")
+agg_cur    = df_cur.groupby(cat_col)[sales_col].sum().rename("当月売上")
 comparison = pd.concat([agg_prev, agg_cur], axis=1).fillna(0)
 
-# 7) 伸び率計算（必ず float 型に変換）
+# 7) 伸び率計算
 comparison["伸び率(%)"] = (
-    (comparison["当月売上"] - comparison["前月売上"]) 
+    (comparison["当月売上"] - comparison["前月売上"])
     / comparison["前月売上"].replace(0, pd.NA) * 100
-).astype(float).round(1)
+).round(1)
 
 # 8) グラフ描画
 st.subheader("📈 カテゴリ別 売上比較")
-fig, ax = plt.subplots(figsize=(8, max(4, len(comparison)*0.5)))
-comparison[["前月売上","当月売上"]].plot(kind="bar", ax=ax)
+fig, ax = plt.subplots(figsize=(8, max(4, len(comparison) * 0.5)))
+comparison[["前月売上", "当月売上"]].plot(kind="bar", ax=ax)
 ax.set_ylabel("売上額")
 ax.legend(loc="upper left")
 st.pyplot(fig)
